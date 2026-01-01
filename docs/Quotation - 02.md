@@ -9,10 +9,10 @@
 ### Software Vendor
 | Field | Details |
 |------|--------|
-| Company Name | MSC Digital Solutions |
+| Company Name | CodeStorm Hub |
 | Address | Dhaka, Bangladesh |
-| Email | info@mscdigitalsolutions.com |
-| Phone | +880-XXXXXXXXXX |
+| Email | contact@codestormhub.dev |
+| Phone | +880-1970279556 |
 
 ### Client
 | Field | Details |
@@ -159,5 +159,5 @@ By signing below, both parties agree to the terms and pricing outlined in this q
 ---
 
 **Prepared By:**  
-**MSC Digital Solutions**  
+**CodeStorm Hub**  
 Dhaka, Bangladesh
