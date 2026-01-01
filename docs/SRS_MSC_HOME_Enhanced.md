@@ -1,17 +1,26 @@
 # SRS — MSC Home Rental & Real Estate (Enhanced)
-**Document ID:** SRS_MSC_HOME_V2  
-**Version:** 2.2 (Comprehensive Enhanced + Traceability)  
-**Basis:** Original SRS v1.1 + UX Case Study Slides (OCR) + BD market research  
+**Document ID:** SRS_MSC_HOME_V3  
+**Version:** 3.0 (Comprehensive Enhanced + Implementable Business Logic + Traceability)  
+**Basis:** Original SRS v1.1 + UX Case Study Slides (OCR) + BD market research + payment gateway patterns + BD government portal UX constraints  
 **Audience:** Product, Engineering, QA, Delivery, Partners
 
-> This document consolidates the original MVP SRS and expands it with Bangladesh-specific workflows (Bayna/Dalil/Namjari), partner integrations (e-KYC and payment gateway), and the missing business logic identified from the slides.
+> This document consolidates the original MVP SRS and expands it with Bangladesh-specific workflows (Bayna/Dalil/Namjari), partner integrations (e-KYC and payment gateway), and implementable business logic (RBAC, listing lifecycle/moderation, disputes/refunds, document access controls) identified from review + research.
+
+## Change Log (from v2.2 → v3.0)
+- Fixed numbering issues (duplicate section numbering) to improve traceability.
+- Added an explicit **roles & permissions** model (RBAC + ownership/relationship checks).
+- Added missing **listing lifecycle + moderation** rules (draft → review → publish → pause → archive) and re-verification triggers.
+- Expanded **document vault** rules (access grants, expiration, watermarking, auditability).
+- Expanded **payments** rules (idempotency, validation, risk/hold handling, refund and cancellation policy).
+- Expanded **dispute workflow** (evidence, SLAs, outcomes) and linked it to order/payment states.
+- Added new Mermaid diagrams: listing lifecycle, dispute lifecycle, document access decision flow, notification delivery sequence, portal tracking assistance sequence.
 
 ---
 
 ## Table of Contents
 1. Introduction  
 2. Product Overview  
-3. Stakeholders & User Actors  
+3. Stakeholders & User Actors (incl. Roles & Permissions)  
 4. Personas  
 5. System Modules & Scope  
 6. Assumptions, Constraints, Dependencies  
@@ -21,7 +30,7 @@
 10. Data Requirements  
 11. ERD  
 12. Transaction Step Tracking  
-13. Sequence Diagrams  
+13. Diagrams (ERD/State/Sequence/Flow)  
 14. Non-Functional Requirements (NFR)  
 15. MVP Scope & Prioritized Backlog  
 16. Appendices (Traceability & Glossary)
@@ -109,6 +118,51 @@ Implication: the MVP must strongly prioritize **search**, **verification/trust**
 11. Customer Support
 12. Field Verifier (in-person property verification)
 
+### 3.3 Roles & Permissions (RBAC + Relationship-Based Access)
+
+MSC Home uses:
+- **RBAC** for coarse permissions (what a role *may* do)
+- **ABAC / relationship checks** for fine permissions (what a user *may do to a specific resource*)
+
+#### 3.3.1 Role catalog
+- **Guest:** not logged in.
+- **User (Consumer):** logged in buyer/renter/seller (non-professional).
+- **Professional:** verified or unverified professionals, sub-types:
+    - **Agent/Realtor (URA-certified where applicable)**
+    - **Developer/Company**
+    - **Legal Agent**
+    - **Financial Agent**
+    - **Service Provider**
+- **Verifier/Moderator:** reviews identity/listing verification and moderation cases.
+- **Customer Support:** assists in disputes and user issues (limited admin powers).
+- **Admin:** full platform management.
+
+#### 3.3.2 Relationship-based access checks (ABAC)
+At minimum, access to sensitive resources must check:
+- **Ownership:** user owns the listing/document/profile.
+- **Participation:** user is a participant in the chat thread / appointment / offer / transaction / dispute.
+- **Granted access:** explicit, time-bound access grant exists (e.g., document vault share).
+- **Role constraints:** only verifier/admin can approve verification, only admins can ban users, etc.
+
+#### 3.3.3 Minimum permissions matrix (non-exhaustive)
+
+| Action | Guest | User | Professional | Verifier/Mod | Support | Admin |
+|---|---:|---:|---:|---:|---:|---:|
+| Browse public listings | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| View restricted listing docs (vault) | ❌ | ✅* | ✅* | ✅ | ✅* | ✅ |
+| Create listing | ❌ | ✅ | ✅ | ❌ | ❌ | ✅ |
+| Publish listing (after review) | ❌ | ✅* | ✅* | ✅* | ✅* | ✅ |
+| Submit identity/pro verification request | ❌ | ✅ | ✅ | ❌ | ❌ | ✅ |
+| Approve/reject verification | ❌ | ❌ | ❌ | ✅ | ✅* | ✅ |
+| Send chat message | ❌ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Block/report user or listing | ❌ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Create/accept/counter offers | ❌ | ✅ | ✅ | ❌ | ❌ | ✅ |
+| View transaction timeline | ❌ | ✅* | ✅* | ✅* | ✅* | ✅ |
+| Open dispute + upload evidence | ❌ | ✅* | ✅* | ✅* | ✅ | ✅ |
+| Resolve dispute | ❌ | ❌ | ❌ | ✅* | ✅* | ✅ |
+
+\* Requires ABAC checks (ownership/participation/explicit access grant) and business-rule gating (e.g., only after offer accepted).
+
 ---
 
 ## 4. Personas
@@ -158,6 +212,10 @@ Implication: the MVP must strongly prioritize **search**, **verification/trust**
 - Personal info security is mandatory.
 - Verified badge and verified listings must be supported.
 - Offer/negotiation must exist.
+
+Additional constraints (v3.0):
+- Government land portals are treated as **external systems**: MSC Home provides link-outs and stores user-entered references/evidence only (no automated scraping/captcha solving).
+- Sensitive identity and document data must be protected with least-privilege access, encryption, and full auditing.
 
 ### 6.3 Dependencies
 - Maps provider (Google Maps or equivalent)
@@ -281,9 +339,20 @@ Implication: the MVP must strongly prioritize **search**, **verification/trust**
     - Land record/map services (DLRMS)
     - Online mutation (e-Namjari)
     - Land Development Tax (ভূমি উন্নয়ন কর)
-- **FR-67 (P0): Portal Reference Capture** allow users to store portal references (e.g., application number, holding/khatian references, mobile number used for tracking) as part of a transaction timeline without requiring the platform to integrate directly with government systems.
-- **FR-68 (P1): Status Tracking Assistance** provide a guided “check status” UX that mirrors portal inputs (e.g., application number + mobile + captcha math), and stores a user-entered status snapshot with timestamp.
+- **FR-67 (P0): Portal Reference Capture** allow users to store portal references as part of a transaction timeline **without** requiring the platform to integrate directly with government systems. At minimum support:
+    - Portal type: DLRMS / Mutation (e-Namjari) / LDTax
+    - Application/holding/reference numbers (as applicable)
+    - Mobile number used for tracking (as applicable)
+    - Notes and attachment(s): screenshot/PDF receipt
+    - Timestamp + actor (who captured)
+- **FR-68 (P1): Status Tracking Assistance (Manual)** provide a guided “check status” UX that mirrors the portal’s required inputs and stores a **user-entered** status snapshot with timestamp.
+    - Example (DLRMS tracking): application number + mobile number + **captcha math sum** input.
+    - The platform must **not** attempt to automate portal submissions, scrape pages, or solve captchas. The workflow is **link-out + user manual entry + optional screenshot upload**.
+    - Status snapshots store: portal type, reference identifiers, status text selected/entered by the user, captured_at, optional evidence attachment.
 - **FR-69 (P1): Proof Attachments from Portals** support uploading QR-coded documents (e.g., khatian copy / DCR) as step proofs and link them to transaction steps.
+
+\* Notes (BD context):
+- LDTax holding registration commonly requires user identity inputs such as mobile number, NID number, DOB, and land references (e.g., khatiyan/dakhila info). MSC Home should only **guide** users and store references/evidence they voluntarily provide.
 
 ### 7.21 Payment Gateway Integration (SSLCOMMERZ-style hardening)
 - **FR-70 (P0): Hosted Checkout Support** support redirect-based hosted checkout in addition to (or instead of) embedded checkout for MVP reliability.
@@ -291,6 +360,60 @@ Implication: the MVP must strongly prioritize **search**, **verification/trust**
 - **FR-72 (P0): Post-Payment Validation Call** validate successful payment notifications by calling the gateway validation endpoint and reconciling amount/currency/transaction IDs before marking orders as PAID.
 - **FR-73 (P1): Refund Operations** support initiating and tracking refunds (gateway dependent) and store refund reference IDs/status.
 - **FR-74 (P1): Risk Holds** if gateway flags a payment as risky, the system must place the order in a “HOLD” state for manual verification.
+
+### 7.22 Operational & Safety Requirements (v3.0 Addendum)
+
+#### 7.22.1 Listing lifecycle & moderation
+- **FR-75 (P0): Listing Lifecycle State Machine** implement listing statuses and allowed transitions (see diagram in Section 13):
+    - DRAFT → SUBMITTED → UNDER_REVIEW → (PUBLISHED | CHANGES_REQUESTED | REJECTED)
+    - PUBLISHED → (PAUSED | ARCHIVED)
+    - CHANGES_REQUESTED → SUBMITTED
+    - Any non-terminal → ARCHIVED (user-initiated) with retention policy
+- **FR-76 (P0): Listing Moderation Queue** provide an admin/verifier queue for listing review decisions with:
+    - decision: approve / reject / request_changes
+    - reason codes + free-text notes
+    - evidence links (photos/docs) and an audit trail
+- **FR-77 (P1): Re-Verification Triggers** support automatic or manual re-review when:
+    - listing price changes beyond threshold
+    - location or ownership documents change
+    - user receives fraud reports above threshold
+    - listing has been inactive for N days and is re-published
+- **FR-78 (P0): Status History + Auditability** store listing status history (who, what, when, why) and expose it to Admin.
+
+#### 7.22.2 Document vault access controls
+- **FR-79 (P0): Document Access Requests** allow a user to request access to a listing’s sensitive documents (e.g., Dalil/Mutation/Tax) with:
+    - purpose (dropdown + free text)
+    - requested documents (explicit selection)
+    - expiry request (default configurable)
+- **FR-80 (P0): Document Access Grants** allow owner/agent (and optionally admin) to approve/deny requests, generating a **time-bound access grant** with:
+    - scope (which docs)
+    - expiry timestamp
+    - download/view permissions (default: view-only)
+    - revocation support
+- **FR-81 (P1): Document Watermarking / View-Only** for shared documents, render watermarked previews (e.g., userId + timestamp) and discourage raw downloads where feasible.
+- **FR-82 (P0): Document Access Audit Log** record every view/download attempt with outcome (allowed/denied) for dispute and fraud investigation.
+
+#### 7.22.3 Messaging safety & abuse prevention
+- **FR-83 (P0): Block & Report** users can block another user; blocked users cannot message/call each other.
+- **FR-84 (P0): Anti-Spam Controls** enforce server-side rate limits and abuse detection for:
+    - message frequency
+    - repeated content
+    - link/phone-number sharing limits (configurable)
+- **FR-85 (P1): Moderation Cases** reported content creates a moderation case with triage, actions (warn/mute/suspend/ban), and evidence snapshots.
+
+#### 7.22.4 Notifications: preferences & delivery
+- **FR-86 (P0): Notification Preferences** users can configure per-category notification preferences (in-app, email, SMS) and quiet hours.
+- **FR-87 (P1): Reliable Notification Delivery** implement retries/backoff and a dead-letter queue for outbound email/SMS to avoid silent drops.
+
+#### 7.22.5 Disputes, cancellations, refunds
+- **FR-88 (P1): Dispute Lifecycle** implement dispute creation, evidence uploads, admin workflow, and outcomes (see diagram in Section 13).
+- **FR-89 (P1): Cancellation Policy Engine** define and enforce cancellation rules (time window, state-based eligibility) across orders and transactions.
+- **FR-90 (P1): Refund Tracking** store refund attempts and statuses, and link them to disputes where applicable.
+
+#### 7.22.6 Payments: idempotency & signature verification
+- **FR-91 (P0): Idempotent Payment Processing** process payment notifications and validations idempotently (dedupe by provider transaction identifiers + local idempotency keys).
+- **FR-92 (P0): Verify Gateway Signatures** verify gateway callback/IPN authenticity where supported (e.g., signature fields) before trusting payloads.
+- **FR-93 (P1): Reconciliation Report** provide a basic daily reconciliation export/report (orders vs payments vs gateway status) for operations.
 
 ---
 
@@ -313,35 +436,61 @@ Implication: the MVP must strongly prioritize **search**, **verification/trust**
 - **BR-8:** A listing must not claim “no extra costs” unless the seller explicitly confirms all cost fields.
 - **BR-9:** If a seller does not provide a cost field, UI must label it as “Not provided” (to avoid hidden costs).
 
-### 8.3 Offers/Transactions
+### 8.4 Offers/Transactions
 - **BR-10:** Only logged-in buyers can submit offers.
 - **BR-11:** Offer states: SUBMITTED → COUNTERED → ACCEPTED/REJECTED/WITHDRAWN.
 - **BR-12:** Accepted offer creates a transaction record.
 - **BR-13:** Transaction steps are append-only and timestamped.
 - **BR-14:** Step proof rules (MVP): step can be marked complete only if required proof type is attached (document or counterparty confirmation).
 
-### 8.4 Payments
+### 8.5 Payments
 - **BR-15:** Payment must reference one order; order must reference one transaction (if property).
 - **BR-16:** OTP/3DS is required for payment confirmation (gateway-dependent).
 - **BR-17:** Cancel rules: if payment succeeded, refund flow is initiated.
 
-### 8.5 Buyer Protection / Disputes
+### 8.6 Buyer Protection / Disputes
 - **BR-18 (P1):** A dispute can be opened only for PAID orders within a configurable window.
 - **BR-19 (P1):** Dispute status changes are admin-audited.
 
-### 8.6 Reviews
+### 8.7 Reviews
 - **BR-20:** Reviews allowed only after transaction completion.
 - **BR-21:** One review per party per transaction.
 
-### 8.7 Service Provider Marketplace
+### 8.8 Service Provider Marketplace
 - **BR-22:** Service reviews are allowed only after a service order is completed.
 - **BR-23:** Provider payout status must be auditable (who approved, when, and reference details).
 
-### 8.8 Payment Gateway Validation & Risk
+### 8.9 Payment Gateway Validation & Risk
 - **BR-24:** An order must be marked PAID only after back-end validation succeeds (IPN alone is not sufficient).
 - **BR-25:** Back-end validation must reconcile at minimum: transaction ID, amount, currency type, and final status.
 - **BR-26:** If the gateway returns a “risky” flag for an otherwise successful payment, the platform must place the order into a HOLD state and require additional verification before delivering buyer protection guarantees or releasing service confirmation.
 - **BR-27:** The payment integration must require TLS 1.2+ on the merchant server and use server-to-server calls for sensitive API operations.
+
+### 8.10 Listing Lifecycle & Moderation
+- **BR-28:** Listings must not be publicly visible unless status is PUBLISHED.
+- **BR-29:** Listings with CHANGES_REQUESTED cannot return to PUBLISHED without re-submission and a new review decision.
+- **BR-30 (P1):** A listing should be auto-paused if it receives a configurable number of credible fraud reports pending review.
+- **BR-31:** Re-verification triggers (FR-77) must result in either (a) review required before publish, or (b) status downgrade to UNDER_REVIEW/PAUSED until resolved.
+
+### 8.11 Document Vault Access Policy
+- **BR-32:** Vault documents are private by default; access requires explicit grant (FR-80) or verifier/admin role.
+- **BR-33:** Access grants are time-bound and revocable; access must be denied after expiry.
+- **BR-34 (P1):** When sharing is enabled, provide watermarked previews; raw downloads (if allowed) must be auditable.
+- **BR-35:** Every access attempt must be logged (FR-82), including denied attempts.
+
+### 8.12 Messaging Safety & Abuse Handling
+- **BR-36:** Blocking is mutual: when either party blocks, messaging/calling is disabled both ways.
+- **BR-37:** The platform must enforce rate limits server-side; clients cannot bypass.
+- **BR-38 (P1):** Moderation actions (mute/suspend/ban) must be reversible by Admin and fully audited.
+
+### 8.13 Notifications
+- **BR-39:** Notifications must respect user preferences and quiet hours except for mandatory security alerts (e.g., suspicious login, password change).
+- **BR-40 (P1):** Notification delivery failures must be retried and surfaced to operations (dead-letter queue monitoring).
+
+### 8.14 Cancellations, Refunds, and Holds
+- **BR-41 (P1):** Cancellation eligibility depends on order state; once PAID, cancellation triggers refund workflow (where supported).
+- **BR-42 (P1):** Refund outcomes are final only after gateway confirmation; partial refunds (if supported) must reconcile amounts.
+- **BR-43 (P1):** HOLD orders must not progress to service delivery or step completion requiring payment until released by Admin/Support.
 
 ---
 
@@ -397,6 +546,25 @@ Additional (P1):
 - Bayna agreement copy
 - Mutation/Namjari paper(s)
 - Tax receipt / DCR (where applicable)
+
+### 10.3 Additional Entities / Tables (v3.0 gaps closed)
+
+Operational & compliance-oriented data that enables auditability and safe workflows:
+
+- **ListingStatusHistory**: listing_id, from_status, to_status, reason_code, notes, actor_user_id, created_at.
+- **ListingVerificationChecklist** (optional): listing_id, check_type, status, verifier_notes, evidence_document_id, created_at.
+- **DocumentAccessRequest**: requester_user_id, listing_id (optional), transaction_id (optional), requested_doc_ids, purpose, status, created_at.
+- **DocumentAccessGrant**: request_id, granter_user_id, allowed_doc_ids, can_download, expires_at, revoked_at.
+- **Dispute**: order_id, opened_by_user_id, dispute_type, status, summary, opened_at, resolved_at.
+- **DisputeEvidence**: dispute_id, uploader_user_id, document_id, note, created_at.
+- **Refund**: payment_id, dispute_id (optional), provider_refund_id, amount, currency, status, initiated_by_user_id, created_at.
+- **Notification**: user_id, type, channel, payload_json, status (queued/sent/failed), created_at.
+- **NotificationPreference**: user_id, category, channel, enabled, quiet_hours.
+- **ModerationCase**: target_type (listing/user/message), target_id, reporter_user_id, reason, status, action_taken, created_at.
+- **DeviceSession** (optional): user_id, device_fingerprint, refresh_token_id, last_seen_at, revoked_at.
+- **PaymentEvent**: payment_id, provider_event_type, raw_payload_hash, received_at, processed_at, processing_result.
+- **LandPortalReference** (from v2.2): extend to include portal_type, reference_id(s), mobile_used, notes, attachments.
+- **LandPortalStatusSnapshot** (new): portal_reference_id, captured_by_user_id, status_text, captured_at, evidence_document_id (optional).
 
 ---
 
@@ -470,6 +638,68 @@ erDiagram
         string provider
         string status
         float amount
+    }
+```
+
+### 11.2 Extended Operational ERD (v3.0 Addendum)
+
+```mermaid
+erDiagram
+    PROPERTY_LISTING ||--o{ LISTING_STATUS_HISTORY : has
+    PROPERTY_LISTING ||--o{ LISTING_VERIFICATION_CHECK : verified_by
+
+    USER ||--o{ DOCUMENT_ACCESS_REQUEST : requests
+    PROPERTY_LISTING ||--o{ DOCUMENT_ACCESS_REQUEST : for_listing
+    DOCUMENT_ACCESS_REQUEST ||--o| DOCUMENT_ACCESS_GRANT : approved_creates
+    USER ||--o{ DOCUMENT_ACCESS_GRANT : grants
+    DOCUMENT_ACCESS_GRANT ||--o{ DOCUMENT_ACCESS_GRANT_ITEM : includes
+    DOCUMENT_ACCESS_GRANT_ITEM }o--|| DOCUMENT : allows
+
+    ORDER ||--o{ DISPUTE : may_have
+    DISPUTE ||--o{ DISPUTE_EVIDENCE : includes
+    DISPUTE_EVIDENCE }o--|| DOCUMENT : evidence
+    PAYMENT ||--o{ REFUND : may_have
+
+    USER ||--o{ NOTIFICATION_PREFERENCE : sets
+    USER ||--o{ NOTIFICATION : receives
+
+    USER ||--o{ MODERATION_CASE : reports
+    MODERATION_CASE }o--|| USER : handled_by
+
+    TRANSACTION ||--o{ LAND_PORTAL_REFERENCE : tracks
+    LAND_PORTAL_REFERENCE ||--o{ LAND_PORTAL_STATUS_SNAPSHOT : snapshots
+
+    LISTING_STATUS_HISTORY {
+        string id PK
+        string listing_id FK
+        string from_status
+        string to_status
+        string reason_code
+        string actor_user_id FK
+        datetime created_at
+    }
+    DOCUMENT_ACCESS_GRANT {
+        string id PK
+        string request_id FK
+        string granter_user_id FK
+        boolean can_download
+        datetime expires_at
+        datetime revoked_at
+    }
+    DISPUTE {
+        string id PK
+        string order_id FK
+        string opened_by_user_id FK
+        string status
+        datetime opened_at
+        datetime resolved_at
+    }
+    REFUND {
+        string id PK
+        string payment_id FK
+        string provider_refund_id
+        float amount
+        string status
     }
 ```
 
@@ -595,9 +825,33 @@ It complements the state machines above and operationalizes **proof uploads per 
 
 ---
 
-## 13. Sequence Diagrams
+## 13. Diagrams (ERD/State/Sequence/Flow)
 
-### 13.1 Verification Flow (User → Admin/Verifier → Badge)
+### 13.1 Listing Lifecycle (Draft → Review → Publish)
+
+```mermaid
+stateDiagram-v2
+    [*] --> DRAFT
+    DRAFT --> SUBMITTED: submit_for_review
+    SUBMITTED --> UNDER_REVIEW: queued
+    UNDER_REVIEW --> PUBLISHED: approve
+    UNDER_REVIEW --> CHANGES_REQUESTED: request_changes
+    UNDER_REVIEW --> REJECTED: reject
+
+    CHANGES_REQUESTED --> DRAFT: edit
+    CHANGES_REQUESTED --> SUBMITTED: resubmit
+
+    PUBLISHED --> PAUSED: pause
+    PAUSED --> PUBLISHED: resume
+    PUBLISHED --> UNDER_REVIEW: reverification_trigger
+    PUBLISHED --> ARCHIVED: archive
+    PAUSED --> ARCHIVED: archive
+
+    REJECTED --> ARCHIVED: archive
+    ARCHIVED --> [*]
+```
+
+### 13.2 Verification Flow (User → Admin/Verifier → Badge)
 
 ```mermaid
 sequenceDiagram
@@ -630,7 +884,7 @@ sequenceDiagram
     API-->>UI: Verified badge enabled
 ```
 
-### 13.2 Payment Flow (Gateway + OTP/3DS)
+### 13.3 Payment Flow (Gateway + OTP/3DS)
 
 ```mermaid
 sequenceDiagram
@@ -660,7 +914,7 @@ sequenceDiagram
     API-->>UI: Receipt + update transaction step
 ```
 
-### 13.3 System Context (External Integrations)
+### 13.4 System Context (External Integrations)
 
 ```mermaid
 flowchart LR
@@ -700,8 +954,7 @@ flowchart LR
     API --> Video
 ```
 
-### 13.4 Hosted Checkout + IPN + Validation (SSLCOMMERZ-style)
-
+### 13.5 Hosted Checkout + IPN + Validation (SSLCOMMERZ-style)
 ```mermaid
 sequenceDiagram
     autonumber
@@ -731,6 +984,92 @@ sequenceDiagram
     API-->>UI: Show receipt or next steps
 ```
 
+### 13.6 Dispute Lifecycle (State Diagram)
+
+```mermaid
+stateDiagram-v2
+    [*] --> OPEN
+    OPEN --> NEEDS_INFO: request_more_info
+    NEEDS_INFO --> OPEN: submit_evidence
+
+    OPEN --> UNDER_REVIEW: support_triage
+    UNDER_REVIEW --> MEDIATION: propose_resolution
+    UNDER_REVIEW --> ESCALATED: escalate_admin
+
+    MEDIATION --> RESOLVED_REFUND: refund_approved
+    MEDIATION --> RESOLVED_NO_REFUND: refund_denied
+    ESCALATED --> RESOLVED_REFUND: refund_approved
+    ESCALATED --> RESOLVED_NO_REFUND: refund_denied
+
+    RESOLVED_REFUND --> [*]
+    RESOLVED_NO_REFUND --> [*]
+```
+
+### 13.7 Document Vault Access Decision (Flow)
+
+```mermaid
+flowchart TD
+    R[Request document access] --> A{Logged in?}
+    A -- No --> D0[Denied]
+    A -- Yes --> B{Owner or participant?}
+    B -- Yes --> ALLOW1[Allow per policy]
+    B -- No --> C{Has access grant?}
+    C -- No --> REQ[Create access request]
+    C -- Yes --> E{Grant expired/revoked?}
+    E -- Yes --> D1[Denied]
+    E -- No --> ALLOW2[Allow watermarked preview]
+
+    ALLOW1 --> LOG[Log access]
+    ALLOW2 --> LOG
+    REQ --> LOGREQ[Log request]
+```
+
+### 13.8 Notification Delivery (Sequence)
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant Svc as Domain Service
+    participant Bus as Event Bus
+    participant Notif as Notification Service
+    participant Q as Outbound Queue
+    participant SMS as SMS Provider
+    participant Email as Email Provider
+    participant UI as App UI
+
+    Svc->>Bus: Publish event
+    Bus->>Notif: Deliver event
+    Notif->>Notif: Resolve recipients + preferences
+    Notif->>UI: Create in-app notification
+    Notif->>Q: Enqueue outbound messages
+    par SMS
+        Q->>SMS: Send SMS
+        SMS-->>Q: Accepted/Failed
+    and Email
+        Q->>Email: Send Email
+        Email-->>Q: Accepted/Failed
+    end
+    Notif->>Notif: Retry/backoff on failures (P1)
+```
+
+### 13.9 Portal Tracking Assistance (Manual Link-Out)
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User
+    participant UI as MSC Home UI
+    participant API as Backend API
+    participant Portal as Official Portal (external)
+
+    User->>UI: Open transaction step "Check portal status"
+    UI->>Portal: Open portal link (new tab)
+    Note over UI,Portal: User completes portal captcha manually\nNo automation by MSC Home
+    User->>UI: Enter reference + status text\nUpload screenshot/PDF if needed
+    UI->>API: Save reference + status snapshot
+    API-->>UI: Snapshot saved + timestamp
+```
+
 ---
 
 ## 14. Non-Functional Requirements (NFR)
@@ -741,15 +1080,45 @@ sequenceDiagram
 - Audit logs for verification, admin actions, and payments.
 - Signed URL access for document downloads.
 
+Additional security requirements (implementation-oriented):
+- Strong authentication defaults: password policy, OTP rate limits, brute-force protection.
+- Session security: refresh token rotation, device/session revocation (FR-75), and suspicious login alerts.
+- File security: virus/malware scanning for uploads (P1), content-type validation, size limits.
+- Secrets management: no credentials in clients; rotate API keys; environment-based configs.
+- Data minimization: collect only required NID/identity data; avoid storing captcha solutions.
+
 ### 14.2 Performance
 - Search response target < 2s for typical filters.
 - Media served via CDN.
 
+### 14.2.1 Scalability
+- System must support burst traffic during marketing campaigns and peak hours.
+- Background jobs (notifications, payment webhooks, media processing) must not block user requests.
+
 ### 14.3 Reliability
 - Payment flow must be retry-safe (idempotency keys).
 
+### 14.3.1 Availability & Recovery
+- Define RPO/RTO targets (to be finalized). Suggested baseline: RPO ≤ 24h, RTO ≤ 4h.
+- Automated backups for primary database and document metadata.
+- Graceful degradation: if optional providers fail (video SDK, e-KYC), core marketplace remains usable.
+
+### 14.3.2 Observability
+- Centralized logging with correlation IDs.
+- Metrics for: search latency, payment success rate, webhook processing lag, notification delivery failures.
+- Alerting for: payment validation failures, webhook spikes, dead-letter queue growth.
+
 ### 14.4 Privacy
 - Strict access to documents (only owner + verifier + permitted parties).
+
+Privacy requirements:
+- Explicit user consent for document uploads and sharing.
+- Support user data export/delete requests where legally appropriate.
+- Redact sensitive information in logs (NID, bank details, document URLs).
+
+### 14.5 Accessibility & Localization
+- Support Bangla and English UI text (P1); store user locale preference.
+- Ensure WCAG-friendly UI for core flows (search, listing view, chat, checkout).
 
 ---
 
@@ -842,6 +1211,7 @@ Source evidence:
 Government land services (Bangladesh):
 - Mutation / e-Namjari portal: https://mutation.land.gov.bd/ (status tracking, contact hotline 16122)
 - Land record & map services (DLRMS): https://dlrms.land.gov.bd/ (guideline + application tracking)
+- DLRMS application tracking (example entry point): https://dlrms.land.gov.bd/application/search
 - Land Development Tax portal: https://portal.ldtax.gov.bd/ (holding registration prerequisites and manuals)
 
 Payments:
