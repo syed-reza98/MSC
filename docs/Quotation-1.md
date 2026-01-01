@@ -95,7 +95,7 @@ This approach ensures scalability, security, and consistent data across all plat
 
 **Deliverables:**
 - Android application (APK)  
-- iOS application (IPA / App Store–ready build)  
+- iOS application (IPA / App Store-ready build)  
 - API-integrated mobile apps  
 
 ---
